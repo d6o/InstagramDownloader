@@ -88,7 +88,7 @@ func (t *Tray) Media() []*media {
 	return mediaList
 }
 
-func (u *User) Media(insta *MultiInsta, lastCheck string) ([]*media, error) {
+func (u *User) Media(insta *MultiInsta, lastCheck int64) ([]*media, error) {
 	mediaList := []*media{}
 
 	mediaList = append(mediaList, u.ProfilePicture())
@@ -109,12 +109,12 @@ func (u *User) ProfilePicture() *media {
 	}
 }
 
-func (u *User) Items(insta *goinsta.Instagram, lastCheck string) (map[string]Item, error) {
+func (u *User) Items(insta *goinsta.Instagram, lastCheck int64) (map[string]Item, error) {
 	maxID := ""
 	items := map[string]Item{}
 
 	for {
-		userFeedResponse, err := insta.UserFeed(u.ID, maxID, lastCheck)
+		userFeedResponse, err := insta.UserFeed(u.ID, maxID, fmt.Sprintf("%d", lastCheck))
 		if err != nil {
 			return nil, err
 		}
@@ -131,7 +131,7 @@ func (u *User) Items(insta *goinsta.Instagram, lastCheck string) (map[string]Ite
 	}
 }
 
-func (u *User) Feed(insta *MultiInsta, lastCheck string) ([]*media, error) {
+func (u *User) Feed(insta *MultiInsta, lastCheck int64) ([]*media, error) {
 	mediaList := []*media{}
 
 	acc := insta.Main
@@ -205,6 +205,7 @@ func main() {
 	altPassword := ""
 	numDownloaders := 5
 	maxWaitTime := 60
+	minReadTimestamp := time.Now().Unix()
 
 	mainInsta, err := NewInsta(mainUsername, mainPassword)
 	if err != nil {
@@ -263,6 +264,15 @@ func main() {
 			mediaChannel <- m
 		}
 
+		timelineResp, err := insta.Main.Timeline("")
+		if err != nil {
+			panic(err)
+		}
+
+		for _, resp := range timelineResp.Items {
+			fmt.Printf("%s %d %s %s \n", resp.ID, resp.CommentCount, resp.User.FullName, resp.Caption.Text)
+		}
+
 		userList, err := users(insta.Main)
 		if err != nil {
 			panic(err)
@@ -270,10 +280,10 @@ func main() {
 
 		for _, user := range userList {
 			fmt.Printf("Checking %s\n", user.Username)
-			lastTimestamp := ""
+			lastTimestamp := minReadTimestamp
 
 			if last, ok := lastCheck[user.ID]; ok {
-				lastTimestamp = fmt.Sprintf("%d", last.Unix())
+				lastTimestamp = last.Unix()
 			}
 
 			userMedia, err := user.Media(insta, lastTimestamp)
@@ -357,6 +367,10 @@ func download(media *media, maxWaitTime int) error {
 	resp, err := http.Get(media.URL)
 	if err != nil {
 		return err
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("invalid status code: %d", resp.StatusCode)
 	}
 
 	_, err = io.Copy(out, resp.Body)
